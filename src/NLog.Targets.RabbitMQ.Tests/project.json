@@ -1,0 +1,18 @@
+﻿{
+  "version": "1.0.0-*",
+
+  "dependencies": {
+    "NETStandard.Library": "1.6.0",
+    "NUnit": "3.5.0",
+    "Newtonsoft.Json": "9.0.1",
+    "NLog": "4.4.0-beta13",
+    "nlog-rmq-listener": "1.0.0-*",
+    "NLog.Targets.RabbitMQ": "1.0.0-*"
+  },
+
+  "frameworks": {
+    "netcoreapp1.0": {
+      "imports": "dnxcore50"
+    }
+  }
+}

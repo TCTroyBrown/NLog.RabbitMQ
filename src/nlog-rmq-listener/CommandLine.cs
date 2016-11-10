@@ -5,7 +5,10 @@ using System;
 using System.Runtime.Serialization;
 using System.Diagnostics;
 using System.ComponentModel;
+using System.Globalization;
 using System.Threading;
+using Newtonsoft.Json;
+using System.Linq;
 
 namespace NLog.RabbitMQ.Listener
 {
@@ -372,7 +375,7 @@ namespace NLog.RabbitMQ.Listener
 
 		public static ArgumentParser Create(string argument, bool ignoreUnknownArguments = false)
 		{
-			if (argument.Equals("-", StringComparison.InvariantCulture))
+			if (argument.Equals("-", StringComparison.CurrentCultureIgnoreCase))
 				return null;
 
 			if (argument[0] == '-' && argument[1] == '-')
@@ -387,7 +390,7 @@ namespace NLog.RabbitMQ.Listener
 		public static bool IsInputValue(string argument)
 		{
 			if (argument.Length > 0)
-				return argument.Equals("-", StringComparison.InvariantCulture) || argument[0] != '-';
+				return argument.Equals("-", StringComparison.CurrentCultureIgnoreCase) || argument[0] != '-';
 
 			return true;
 		}
@@ -852,7 +855,7 @@ namespace NLog.RabbitMQ.Listener
 					lock (_setValueLock)
 					{
 						//array.SetValue(Convert.ChangeType(values[i], elementType, CultureInfo.InvariantCulture), i);
-						array.SetValue(Convert.ChangeType(values[i], elementType, Thread.CurrentThread.CurrentCulture), i);
+						array.SetValue(Convert.ChangeType(values[i], elementType, CultureInfo.CurrentCulture), i);
 						_property.SetValue(options, array, null);
 					}
 				}
@@ -869,7 +872,7 @@ namespace NLog.RabbitMQ.Listener
 		{
 			try
 			{
-				if (_property.PropertyType.IsEnum)
+				if (_property.PropertyType.GetTypeInfo().IsEnum)
 				{
 					lock (_setValueLock)
 					{
@@ -881,7 +884,7 @@ namespace NLog.RabbitMQ.Listener
 					lock (_setValueLock)
 					{
 						//_property.SetValue(options, Convert.ChangeType(value, _property.PropertyType, CultureInfo.InvariantCulture), null);
-						_property.SetValue(options, Convert.ChangeType(value, _property.PropertyType, Thread.CurrentThread.CurrentCulture), null);
+						_property.SetValue(options, Convert.ChangeType(value, _property.PropertyType, CultureInfo.CurrentCulture), null);
 					}
 				}
 			}
@@ -910,7 +913,7 @@ namespace NLog.RabbitMQ.Listener
 				lock (_setValueLock)
 				{
 					//_property.SetValue(options, nc.ConvertFromString(null, CultureInfo.InvariantCulture, value), null);
-					_property.SetValue(options, nc.ConvertFromString(null, Thread.CurrentThread.CurrentCulture, value), null);
+					_property.SetValue(options, nc.ConvertFromString(null, CultureInfo.CurrentCulture, value), null);
 				}
 			}
 			// the FormatException (thrown by ConvertFromString) is thrown as Exception.InnerException,
@@ -1482,7 +1485,6 @@ namespace NLog.RabbitMQ.Listener
 	/// <summary>
 	/// This exception is thrown when a generic parsing error occurs.
 	/// </summary>
-	[Serializable]
 	public sealed class CommandLineParserException : Exception
 	{
 		internal CommandLineParserException()
@@ -1499,10 +1501,6 @@ namespace NLog.RabbitMQ.Listener
 		{
 		}
 
-		internal CommandLineParserException(SerializationInfo info, StreamingContext context)
-			: base(info, context)
-		{
-		}
 	}
 
 	/// <summary>
@@ -1844,7 +1842,7 @@ namespace NLog.RabbitMQ.Listener
 						var setMethod = property.GetSetMethod();
 						if (setMethod != null && !setMethod.IsStatic)
 						{
-							var attribute = Attribute.GetCustomAttribute(property, typeof(TAttribute), false);
+							var attribute = property.GetCustomAttribute(typeof(TAttribute), false);
 							if (attribute != null)
 								list.Add(new Pair<PropertyInfo, TAttribute>(property, (TAttribute)attribute));
 						}
@@ -1865,7 +1863,7 @@ namespace NLog.RabbitMQ.Listener
 				if (!method.IsStatic)
 				{
 					Attribute attribute =
-						Attribute.GetCustomAttribute(method, typeof(TAttribute), false);
+                        method.GetCustomAttribute(typeof(TAttribute), false);
 					if (attribute != null)
 						return new Pair<MethodInfo, TAttribute>(method, (TAttribute)attribute);
 				}
@@ -1884,7 +1882,7 @@ namespace NLog.RabbitMQ.Listener
 				if (!method.IsStatic)
 				{
 					Attribute attribute =
-						Attribute.GetCustomAttribute(method, typeof(TAttribute), false);
+                        method.GetCustomAttribute(typeof(TAttribute), false);
 					if (attribute != null)
 						return (TAttribute)attribute;
 				}
@@ -1906,7 +1904,7 @@ namespace NLog.RabbitMQ.Listener
 					var setMethod = property.GetSetMethod();
 					if (setMethod != null && !setMethod.IsStatic)
 					{
-						var attribute = Attribute.GetCustomAttribute(property, typeof(TAttribute), false);
+						var attribute = property.GetCustomAttribute(typeof(TAttribute), false);
 						if (attribute != null)
 							list.Add((TAttribute)attribute);
 					}
@@ -1919,15 +1917,15 @@ namespace NLog.RabbitMQ.Listener
 		public static TAttribute GetAttribute<TAttribute>()
 			where TAttribute : Attribute
 		{
-			var assembly = Assembly.GetExecutingAssembly();
-			object[] a = assembly.GetCustomAttributes(typeof(TAttribute), false);
-			if (a.Length <= 0) return null;
-			return (TAttribute)a[0];
+			var typeInfo = typeof(TAttribute).GetTypeInfo();
+			var a = typeInfo.GetCustomAttributes<TAttribute>(false);
+			if (!a.Any()) return null;
+			return (TAttribute)a.First();
 		}
 
 		public static bool IsNullableType(Type type)
 		{
-			return type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>);
+			return type.IsConstructedGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>);
 		}
 	}
 

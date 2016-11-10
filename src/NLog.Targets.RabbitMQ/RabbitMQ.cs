@@ -11,6 +11,7 @@ using MQExchangeType = RabbitMQ.Client.ExchangeType;
 using NLog.Layouts;
 using System.IO.Compression;
 using NLog.Config;
+using System.Reflection;
 
 namespace NLog.Targets
 {
@@ -416,50 +417,52 @@ namespace NLog.Targets
 		/// <summary>
 		/// Never throws
 		/// </summary>
-		[MethodImpl(MethodImplOptions.Synchronized)]
 		private void StartConnection()
 		{
-			var t = Task.Factory.StartNew(() =>
-				{
-					try
-					{
-						_Connection = GetConnectionFac().CreateConnection();
-						AddConnectionShutdownDelegate(_Connection);
+		    lock (this)
+		    {
+		        var t = Task.Factory.StartNew(() =>
+		        {
+		            try
+		            {
+		                _Connection = GetConnectionFac().CreateConnection();
+		                AddConnectionShutdownDelegate(_Connection);
 
-						try
-						{
-							_Model = _Connection.CreateModel();
-						}
-						catch (Exception e)
-						{
-							InternalLogger.Error("could not create model, {0}", e);
-						}
+		                try
+		                {
+		                    _Model = _Connection.CreateModel();
+		                }
+		                catch (Exception e)
+		                {
+		                    InternalLogger.Error("could not create model, {0}", e);
+		                }
 
-						if (_Model != null && !Passive)
-						{
-							try
-							{
-								_Model.ExchangeDeclare(_Exchange, _ExchangeType, _Durable);
-							}
-							catch (Exception e)
-							{
-								if (_Model != null)
-								{
-									_Model.Dispose();
-									_Model = null;
-								}
-								InternalLogger.Error(string.Format("could not declare exchange, {0}", e));
-							}
-						}
-					}
-					catch (Exception e)
-					{
-						InternalLogger.Error(string.Format("could not connect to Rabbit instance, {0}", e));
-					}
-				});
+		                if (_Model != null && !Passive)
+		                {
+		                    try
+		                    {
+		                        _Model.ExchangeDeclare(_Exchange, _ExchangeType, _Durable);
+		                    }
+		                    catch (Exception e)
+		                    {
+		                        if (_Model != null)
+		                        {
+		                            _Model.Dispose();
+		                            _Model = null;
+		                        }
+		                        InternalLogger.Error(string.Format("could not declare exchange, {0}", e));
+		                    }
+		                }
+		            }
+		            catch (Exception e)
+		            {
+		                InternalLogger.Error(string.Format("could not connect to Rabbit instance, {0}", e));
+		            }
+		        });
 
-			if (!t.Wait(TimeSpan.FromMilliseconds(Timeout)))
-				InternalLogger.Warn("starting connection-task timed out, continuing");
+		        if (!t.Wait(TimeSpan.FromMilliseconds(Timeout)))
+		            InternalLogger.Warn("starting connection-task timed out, continuing");
+		    }
 		}
 
 		private ConnectionFactory GetConnectionFac()
@@ -484,37 +487,38 @@ namespace NLog.Targets
 
 		#region ConnectionShutdownEventHandler
 
-		[MethodImpl(MethodImplOptions.Synchronized)]
 		private void ShutdownAmqp(IConnection connection, ShutdownEventArgs reason)
 		{
 			// I can't make this NOT hang when RMQ goes down
 			// and then a log message is sent...
+		    lock (this)
+		    {
+		        try
+		        {
+		            if (_Model != null && _Model.IsOpen
+		                && reason.ReplyCode != Constants.ChannelError
+		                && reason.ReplyCode != Constants.ConnectionForced)
+		                _Model.Abort(); //_Model.Close();
+		        }
+		        catch (Exception e)
+		        {
+		            InternalLogger.Error("could not close model, {0}", e);
+		        }
 
-			try
-			{
-				if (_Model != null && _Model.IsOpen 
-					&& reason.ReplyCode != Constants.ChannelError
-					&& reason.ReplyCode != Constants.ConnectionForced)
-					_Model.Abort(); //_Model.Close();
-			}
-			catch (Exception e)
-			{
-				InternalLogger.Error("could not close model, {0}", e);
-			}
-
-			try
-			{
-				if (connection != null && connection.IsOpen)
-				{
-					AddConnectionShutdownDelegate(connection);
-					connection.Close(reason.ReplyCode, reason.ReplyText, 1000);
-					connection.Abort(1000); // you get 2 seconds to shut down!
-				}
-			}
-			catch (Exception e)
-			{
-				InternalLogger.Error("could not close connection, {0}", e);
-			}
+		        try
+		        {
+		            if (connection != null && connection.IsOpen)
+		            {
+		                AddConnectionShutdownDelegate(connection);
+		                connection.Close(reason.ReplyCode, reason.ReplyText, 1000);
+		                connection.Abort(1000); // you get 2 seconds to shut down!
+		            }
+		        }
+		        catch (Exception e)
+		        {
+		            InternalLogger.Error("could not close connection, {0}", e);
+		        }
+		    }
 		}
 
 		/// <summary>
@@ -544,12 +548,12 @@ namespace NLog.Targets
 
 			System.Reflection.MethodInfo shutdownAmqpMethodInfo = null;
 
-			if (delegateType.IsGenericType && delegateType.GetGenericTypeDefinition() == typeof(EventHandler<>))
+			if (delegateType.IsConstructedGenericType && delegateType.GetGenericTypeDefinition() == typeof(EventHandler<>))
 				shutdownAmqpMethodInfo = typeof(RabbitMQ).GetMethod("ShutdownAmqp35", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 			else
 				shutdownAmqpMethodInfo = typeof(RabbitMQ).GetMethod("ShutdownAmqp", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
-			_connectionShutdownEventHandler = Delegate.CreateDelegate(delegateType, this, shutdownAmqpMethodInfo);
+			_connectionShutdownEventHandler = shutdownAmqpMethodInfo.CreateDelegate(delegateType, this);
 		}
 
 		private void AddConnectionShutdownDelegate(IConnection connection)

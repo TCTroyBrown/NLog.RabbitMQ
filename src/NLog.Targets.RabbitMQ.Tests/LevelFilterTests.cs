@@ -4,7 +4,7 @@ using NLog.RabbitMQ.Listener;
 using NUnit.Framework;
 using Newtonsoft.Json;
 
-namespace NLog.RabbitMQ.Tests
+namespace NLog.Targets.RabbitMQ.Tests
 {
 	public class LevelFilterTests
 	{
